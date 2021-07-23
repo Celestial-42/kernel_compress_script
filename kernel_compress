@@ -1,0 +1,251 @@
+#!/usr/bin/perl
+if (not @ARGV) {
+    print "Error! Need function arguments! \n Useage:\n [rand|compress|decompress] \n";
+    print "---:rand         gene_file_name rand_data_size [INT16|INT8] [sparse_ratio]\n";
+    print "---:compress     data_file_name\n";
+    print "---:decompress   data_file_name [original_data_size]\n";
+    print "eg:Kernel_compress rand     test_data 32 INT16 90\n";
+    print "eg:Kernel_compress compress test_data\n";
+	exit(1);
+}
+
+srand(100);
+
+#print("@ARGV\n");# decomp_file_name type
+#print("@ARGV\n");# decomp_file_name random_file_name size type ratio
+
+if($ARGV[0] eq "rand") {
+	my $gen_data_type;
+	my $sparse_ratio;
+	my $file_name;
+	if(not $ARGV[1]) {
+		print("No file name assigned, default set to \"test_data\"\n");
+		$file_name = "test_data";
+	} else {
+		$file_name = $ARGV[1];
+	}	
+	print("Gene \"$file_name\" random data file\n");
+	die "Need rand_data_size!" if not $ARGV[2];
+	if($ARGV[3] eq "INT8") {
+		$gen_data_type = 0;
+	} elsif ($ARGV[3] eq "INT16") {
+		$gen_data_type = 1;
+	} else {
+		print("No data_type assgined to rand, default set to INT16\n");
+		$gen_data_type = 1;
+	}
+
+	if(not $ARGV[4]) {
+		print("No sparse_ratio assigned to rand, default set to 70\n");
+		$sparse_ratio = 70;
+	} elsif (not $ARGV[4] =~/^\d+$/) {
+		print("Sparse ratio $ARGV[4] must be a number, default set to 70\n");
+		$sparse_ratio = 70;
+	} else {
+		$sparse_ratio = $ARGV[4];
+	}
+
+	rand_data_gen($file_name,$ARGV[2],$gen_data_type,$sparse_ratio);#gen test data self
+	print("Use random data as compressed data : \"$ARGV[1]\"\n");	
+	my $dsize = compress($ARGV[1]);
+	my $temp = $ARGV[1]."_compressed";
+	decompress($temp, $dsize);	
+} elsif ($ARGV[0] eq "decompress"){
+	die "No decompress file!" if(not $ARGV[1]);
+	my $dsize;
+	if(not $ARGV[2]) {
+		print "No size assigned! May output additional data!\n";
+		$dsize = 0;
+	} else {
+		$dszie = $ARGV[2];
+	}
+	decompress($ARGV[1],$dszie);
+} elsif ($ARGV[0] eq "compress"){
+	die "No compress file!" if(not $ARGV[1]);
+	compress($ARGV[1]);
+}
+
+
+sub rand_data_gen {
+	my $file_name = $_[0];
+	my $type = $_[2];
+	my $type ? $gen_size = $_[1] / 2 :  $gen_size = $_[1];
+	my $ratio = $_[3];
+
+	my $lcnt = 0;
+	#print("DEBUG : $file_name $type $gen_size $ratio\n");
+	open(RAND_GEN_FILE,">$file_name"); 
+	for (my $i=0;$i<$gen_size;$i++) {
+		my $rand_data;
+		my $zero_data_seed;
+		$zero_data_seed = rand(100);
+		#print "DBG::::: $zero_data_seed ";
+		if($zero_data_seed >= $ratio) {
+			$rand_data = 0;
+		} else {
+			if($type == 1) {
+				$rand_data = int(rand(65535));
+			} else {
+				$rand_data = int(rand(255));
+			}
+		}
+
+		#print("DEBUG : $rand_data \n");
+		if($type) {
+		 	print RAND_GEN_FILE sprintf("%04x",$rand_data);
+		} else {
+		 	print RAND_GEN_FILE sprintf("%02x",$rand_data);
+		}
+		if($type == 1) {
+			print RAND_GEN_FILE "\n" if (($i+1) % 32 == 0);
+		} else {
+			print RAND_GEN_FILE "\n" if (($i+1) % 16 == 0);
+		}
+	}
+	close(RAND_GEN_FILE);
+}
+
+
+sub compress {
+	print "COMPRESSION BEGIN:\n";		
+	my $in_name = $_[0];
+	open(IN_FILE,"<$in_name"); 
+	open(OUT_FILE,">${in_name}_compressed"); 
+	my $data_to_compress;
+	while(<IN_FILE>) {
+		chomp($data_to_compress = $data_to_compress.$_);
+	}
+	print "Original Data:\n\t".$data_to_compress."\n";
+	my @char_data;
+	@char_data = split(//,$data_to_compress);
+	my $size_before_compress = @char_data / 2;
+	#print @char_data;
+	my $cnt = 0;
+	my $compressed_string;
+	my $compressed_data;
+	my $bitmap;
+	my $char_cnt = 0;
+	my $char_byte;
+	my $size_after_compress = 0;
+	print "COMPRESSING...\n";		
+	while(<@char_data>) {
+		#print "char:$_"."\n";
+		$char_byte = $char_byte.$_;
+		if($char_cnt % 2 == 1) {
+			if($char_byte eq "00") {
+			} else {
+				$compressed_data = $compressed_data.$char_byte;
+				$bitmap = $bitmap + (2**(15-$cnt));
+			}
+			print "===".sprintf("%04x",$bitmap)."===".sprintf("%02d",$cnt)."===$compressed_data\n";
+			$cnt++;
+			if($cnt == 16) {
+				#print OUT_FILE sprintf("%04x",$bitmap).$compressed_data;
+				$compressed_string = $compressed_string.sprintf("%04x",$bitmap).$compressed_data;
+				$size_after_compress = $size_after_compress + 2 + length($compressed_data) / 2;
+				$cnt = 0;
+				$bitmap =0;
+				$compressed_data = '';
+
+			}
+			$char_byte = '';
+		}
+		$char_cnt ++;
+	}
+	if($compressed_data or ($cnt > 0)) {
+		$compressed_string = $compressed_string.sprintf("%04x",$bitmap).$compressed_data;
+		#print OUT_FILE sprintf("%04x",$bitmap).$compressed_data;
+		$size_after_compress = $size_after_compress + 2 + length($compressed_data) / 2;	
+	}
+	my @compressed_list = split(//,$compressed_string);
+	#print "@compressed_list \n";	
+	for (my $i=0;$i<@compressed_list;$i++) {
+		print OUT_FILE $compressed_list[$i];
+		print OUT_FILE "\n" if (($i+1) % 32 == 0);
+	}
+
+	#print ("DEBUG  $size_before_compress $size_after_compress \n");	
+	print "Compressed Data($size_before_compress to $size_after_compress bytes):\n\t";
+	print "$compressed_string \n";	
+	close(IN_FILE);
+	close(OUT_FILE);
+	open(OUT_FILE,"<${in_name}_compressed"); 	
+	print (sprintf("COMPRESS DONE\n compression ratio:%3.2f% (larger than 100% means no need to compress)\n from $size_before_compress to $size_after_compress bytes\n",($size_after_compress/$size_before_compress)*100.0));
+	close(OUT_FILE);
+	return $size_before_compress;
+}
+
+
+sub decompress {
+	my $in_name = $_[0];
+	my $size = $_[1];
+	if($size ) {
+		print "($size bytes) DECOMPRESSION BEGIN:\n";	
+	} else {
+		print "DECOMPRESSION BEGIN:\n";	
+	}
+	open(IN_FILE,"<$in_name"); 
+	open(OUT_FILE,">${in_name}_decompressed"); 
+	my $data_to_decompress;
+	while(<IN_FILE>) {
+		chomp($data_to_decompress = $data_to_decompress.$_);
+	}
+	print "Compressed Data:\n\t";	
+	print $data_to_decompress."\n";	
+	my @char_data;
+	@char_data = split(//,$data_to_decompress);
+	my @decompress_data;
+	my $decomp_cnt;
+	while(@char_data > 0) {
+		my $bitmap = '';
+        my $bitmap_sv;
+        my @str_line;
+		$bitmap = $bitmap.shift @char_data;
+		$bitmap = $bitmap.shift @char_data;
+		$bitmap = $bitmap.shift @char_data;
+		$bitmap = $bitmap.shift @char_data;
+		#print $bitmap;
+		$bitmap = hex($bitmap) ;
+	    $bitmap_sv = sprintf("%4x",$bitmap);
+		for(my $i=15;$i>=0;$i--) {
+			#print "DBG: $i ",2**$i,"  $bitmap \n";
+			if($bitmap >= 2**$i) { # bitmap is 1
+				my $temp;
+				$temp = shift @char_data;
+				push @decompress_data,$temp;
+				push @str_line,$temp;
+				$temp = shift @char_data;
+				push @decompress_data,$temp;
+				push @str_line,$temp;
+				$bitmap = $bitmap - 2**$i;
+			} else {
+				push @decompress_data,"0";	
+				push @decompress_data,"0";	
+				push @str_line,"0";	
+				push @str_line,"0";	
+			}
+			$decomp_cnt++;
+		}
+        my $str_line_join = join('',@str_line);
+		print "$bitmap_sv ----- $str_line_join \n";
+        @str_line = ();
+	}
+	#print "$decomp_cnt \n";
+	if($size != 0) {
+		while($decomp_cnt > $size) {
+			pop @decompress_data;
+			pop @decompress_data;
+			$decomp_cnt--;
+		}
+	}
+	my $decompress_str = join("",@decompress_data);
+	print "Decompressed Data:\n\t";	
+	print $decompress_str."\n";		
+	for (my $i=0;$i<@decompress_data;$i++) {
+		print OUT_FILE $decompress_data[$i];
+		print OUT_FILE "\n" if (($i+1) % 32 == 0);
+	}
+    print OUT_FILE "\n";	
+	close(IN_FILE);
+	close(OUT_FILE)
+}
