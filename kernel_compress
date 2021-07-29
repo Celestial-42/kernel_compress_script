@@ -200,10 +200,10 @@ sub decompress {
 		my $bitmap = '';
         my $bitmap_sv;
         my @str_line;
-		$bitmap = $bitmap.shift @char_data;
-		$bitmap = $bitmap.shift @char_data;
-		$bitmap = $bitmap.shift @char_data;
-		$bitmap = $bitmap.shift @char_data;
+		$bitmap = $bitmap.shift @char_data for (0..3);
+		#$bitmap = $bitmap.shift @char_data;
+		#$bitmap = $bitmap.shift @char_data;
+		#$bitmap = $bitmap.shift @char_data;
 		#print $bitmap;
 		$bitmap = hex($bitmap) ;
 	    $bitmap_sv = sprintf("%4x",$bitmap);
