@@ -1,0 +1,220 @@
+#!/usr/bin/perl
+use Data::Dumper;
+use 5.010;
+if (not @ARGV) {
+    print "Error! Need function arguments! \n Useage:\n [rand|encode|decode] \n";
+    print "---:rand         gene_file_name rand_data_size [sparse_ratio]\n";
+    print "---:encode       data_file_name\n";
+    print "---:decode       data_file_name codex_file_name\n";
+    print "eg:huffman_code rand     test_data 32 90\n";
+    print "eg:huffman_code encode   test_data\n";
+	exit(1);
+}
+
+srand(100);
+
+if($ARGV[0] eq "rand") {
+	my $gen_data_type;
+	my $sparse_ratio;
+	my $gene_size;
+	my $file_name;
+	if(not $ARGV[1]) {
+		print("No file name assigned, default set to <test_data>\n ");
+		$file_name = "test_data";
+	} else {
+		$file_name = $ARGV[1];
+		print("file name \t\t<$file_name>\n");
+	}	
+	if(not $ARGV[2]) {	
+		print("No data_size assigned for rand, default set to 128\n");
+		$gene_size = 128;
+	} else {
+		$gene_size = $ARGV[2];
+		print("file size \t\t<$gene_size>\n");
+	}
+
+
+	if(not $ARGV[3]) {
+		print("No sparse_ratio assigned for rand, default set to 70\n");
+		$sparse_ratio = 70;
+	} elsif (not $ARGV[3] =~/^\d+$/) {
+		print("Sparse ratio $ARGV[3] must be a number, default set to 70\n");
+		$sparse_ratio = 70;
+	} else {
+		$sparse_ratio = $ARGV[3];
+		print("file sparse_ratio \t<$sparse_ratio>\n");
+	}
+
+	print("<$file_name> random data file generating...\n");
+	rand_data_gen($file_name,$gene_size,$sparse_ratio);#gen test data self
+	print("<$file_name> random data file generated\n");
+
+	my %codex_hash = huffman_codex_gen(scan_data($file_name));
+	my @symbols = keys %codex_hash;
+	@symbols = sort(@symbols);
+	open(OUT_FILE,">${file_name}_codex"); 
+	foreach(@symbols) {
+		print "$_\t:$codex_hash{$_}\n";
+		print OUT_FILE "$_\t:$codex_hash{$_}\n";
+	}
+	print "\nCodex file gened <${file_name}_codex>\n";	
+	#say Dumper \%codex_hash;
+	huffman_code_compress($file_name,\%codex_hash);
+} 
+
+sub rand_data_gen {
+	my $file_name = $_[0];
+	my $type = 0;#$_[2];
+	my $type ? $gen_size = $_[1] / 2 :  $gen_size = $_[1];
+	my $ratio = $_[2];
+
+	my $lcnt = 0;
+	#print("DEBUG : $_[0] $_[1] $_[2]\n");
+	#print("DEBUG : $file_name $type $gen_size $ratio\n");
+	open(RAND_GEN_FILE,">$file_name"); 
+	for (my $i=0;$i<$gen_size;$i++) {
+		my $rand_data;
+		my $zero_data_seed;
+		$zero_data_seed = rand(100);
+		#print "DBG::::: $zero_data_seed ";
+		if($zero_data_seed >= $ratio) {
+			$rand_data = 0;
+		} 
+		elsif($type == 1) {
+			$rand_data = int(rand(65535));
+		} else {
+			$rand_data = int(rand(255));
+		}
+ 
+		#print("DEBUG : $rand_data \n");
+		if($type) {
+		 	print RAND_GEN_FILE sprintf("%04x",$rand_data);
+		} else {
+		 	print RAND_GEN_FILE sprintf("%02x",$rand_data);
+		}
+		if($type == 1) {
+			print RAND_GEN_FILE "\n" if (($i+1) % 32 == 0);
+		} else {
+			print RAND_GEN_FILE "\n" if (($i+1) % 16 == 0);
+		}
+	}
+	close(RAND_GEN_FILE);
+}
+
+
+sub scan_data {
+	my $in_name = shift;
+	print "<$in_name> file data scan begin...\n";		
+	open(IN_FILE,"<$in_name"); 
+	my $data_to_scan;
+	while(<IN_FILE>) {
+		chomp($data_to_scan = $data_to_scan.$_);
+	}	
+	#print "Original Data:\n\t".$data_to_scan."\n";	
+	my @char_data = split(//,$data_to_scan);
+	my %hex_sta_hash;
+	while(<@char_data>) {
+		if($_ =~ "[0-9a-fA-F]") {
+			$hex_sta_hash{$_} ++;
+		}
+		else {
+			die "unrecognized char :$_ !";
+		}
+	}
+	my @key_arr = sort(keys %hex_sta_hash);
+	my $m = 0;
+	foreach (@key_arr){
+		$m++;
+		print $_.":".$hex_sta_hash{$_}."\t";
+		if($m==4) {
+			$m=0;
+			print "\n";
+		}
+	}
+	print "\n";
+	#%hex_sta_hash = ('a'=> 10 ,'b'=>10,'c'=>20,'d'=>5);
+	foreach my $key (sort {$hex_sta_hash{$b} <=> $hex_sta_hash{$a}} keys(%hex_sta_hash)) {
+		print "$key\t:$hex_sta_hash{$key} \ttimes\n";
+	}
+	#huffman_codex_gen(\%hex_sta_hash,$in_name);
+	return (\%hex_sta_hash,$in_name);
+}
+
+
+sub huffman_codex_gen {
+	my $hash_tab = shift;
+	while(keys %{$hash_tab} > 1) {
+		@ascend_keys = (sort {%{$hash_tab}{$a} <=> %{$hash_tab}{$b}} keys(%{$hash_tab}));
+		#foreach my $key (@ascend_keys) {
+		#	print "\t${$hash_tab}{$key}\t---\t$key\n";
+		#}	
+		my $temp_key1 = shift @ascend_keys;
+		my $temp_key2 = shift @ascend_keys;
+		my $temp_value = ${$hash_tab}{$temp_key1} + ${$hash_tab}{$temp_key2};
+		delete @{$hash_tab}{$temp_key1,$temp_key2};
+		${$hash_tab}{"($temp_key1,$temp_key2)"} = $temp_value;
+		#print Dumper $hash_tab;
+	}
+	my @codex_str_arr = keys %{$hash_tab};
+	my $codex_str = shift @codex_str_arr;
+	say $codex_str;
+	my @codex_str_arr = split(//,$codex_str);
+
+	my $bincode;
+	my %codex_hash;
+	while(@codex_str_arr) {
+		my $temp_char = shift @codex_str_arr;
+		if($temp_char eq "(") {
+			$bincode = $bincode."0";
+		} 
+		elsif ($temp_char eq ",") {
+			$bincode =~ s/(.*)0/${1}1/;
+		}
+		elsif($temp_char eq ")") {
+			$bincode =~ s/(.*)[01]/$1/;
+		}
+		else {
+			$codex_hash{$temp_char} = $bincode;
+		}
+	}
+	#say Dumper \%codex_hash;
+	return %codex_hash;
+}
+
+sub huffman_code_compress {
+	my $in_name = shift;
+	my $codex_hash = shift;
+	my $in_str;
+	print "<$in_name> file data compress begin...\n";		
+	#say Dumper $codex_hash;
+	open(IN_FILE,"<$in_name"); 	
+	while(<IN_FILE>) {
+		chomp($in_str = $in_str.$_);
+	}	
+	my @in_str_arr = split(//,$in_str);
+	my $out_bin_str;
+	#say @in_str_arr;
+	foreach(@in_str_arr) {
+		$out_bin_str = $out_bin_str.$$codex_hash{$_};
+	}
+	#say $out_bin_str;
+	my @out_str_arr = split(//,$out_bin_str);
+	my $out_str;
+	while(@out_str_arr >= 4) {
+		my $sin_bin;
+		for(0..3) {
+			my $temp = shift @out_str_arr;
+			$sin_bin = $sin_bin.$temp;
+		}
+		$out_str = $out_str.sprintf("%x",oct("0b$sin_bin"));
+	}
+	say "DBGGG".length($out_str);
+	@out_str_arr = split(//,$out_str);
+	open(OUT_FILE,">${in_name}_huffman_compressed"); 		
+	for (my $i=0;$i<@out_str_arr;$i++) {
+		print OUT_FILE $out_str_arr[$i];
+		print OUT_FILE "\n" if (($i+1) % 32 == 0);
+	}	
+}
+
+
